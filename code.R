@@ -2,11 +2,15 @@ library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(gganimate)
+library(animation)
+
+library(treemap)
 library(cbsodataR)
 
 library(randomcoloR)
 library(ggthemes)
 
+# BBP & Groei ----
 bbp_meta <- cbs_get_meta("84105NED")
 bbp      <- cbs_get_data("84105NED")
 
@@ -20,6 +24,21 @@ bbp_meta_key <-
     select(Key, Title) %>%
     na.omit()
 
+groei_meta <- cbs_get_meta("84106NED")
+groei      <- cbs_get_data("84106NED")
+
+groei_meta_key <- 
+    groei_meta$DataProperties %>%
+    select(Key, Title, ParentID) %>%
+    full_join(groei_meta$DataProperties %>%
+                  select(ParentKey = Key, ParentTitle = Title, ID),
+              by = c("ParentID" = "ID")) %>%
+    mutate(Title = ifelse(Title == "Totaal", ParentTitle, Title)) %>%
+    select(Key, Title) %>%
+    na.omit()
+
+
+# Taart BBP Bedrijfstakken ----
 bbp_bt <- bbp %>%
     select(SoortGegevens,
            Perioden, 
@@ -60,7 +79,9 @@ taart_bt_selectie <-
 taart_bt <- bbp_bt_jj_wp_tidy %>%
     #filter(Jaar %in% 1995:2000) %>%
     filter(Key %in% taart_bt_selectie) %>%
-    rename(Bedrijfstak = Title)
+    rename(Bedrijfstak = Title) %>%
+    
+    filter(Jaar <= 2017)
 
 taart_bt_pc <- taart_bt %>%
     group_by(Jaar) %>%
@@ -92,20 +113,187 @@ plot_taart_bt <- taart_bt_pc %>%
           axis.line = element_blank(),
           axis.text = element_blank(),
           axis.ticks = element_blank(),
-          plot.title = element_text(hjust = 0.5, color = "#FFFFFF"),
+          plot.title = element_text(size=60, 
+                                    hjust = 0.5, 
+                                    color = "#FFFFFF"),
           plot.background = element_rect(fill = "#000000"),
           legend.key.height = unit(32, "points"),
           legend.text = element_text(color = "white")) +
 
     # animatie
-    labs(title = 'Aandeel bedrijfstakken, < {frame_time} >, werkelijke prijzen') +
+    labs(title = '< {frame_time} >') +
     transition_time(Jaar)
 
 n_taart_bt_jaren <- length(unique(taart_bt$Jaar))
 
 animate(plot_taart_bt, 
         nframes = n_taart_bt_jaren, 
-        fps = n_taart_bt_jaren / 30,
-        width = 1498, 
+        fps = n_taart_bt_jaren / 20,
+        width = 1480, 
+        height = 1080)
+
+# Staaf BBP Bestedingen ----
+bbp_bs <- bbp %>%
+    select(SoortGegevens,
+           Perioden, 
+           Totaal_1:Diensten_17)
+
+bbp_bs_jj <- bbp_bs %>%
+    filter(grepl("JJ", Perioden)) %>%
+    mutate(Jaar = as.numeric(substr(Perioden, 0, 4)))
+
+bbp_bs_jj_cp <- bbp_bs_jj %>%
+    filter(SoortGegevens == "A045295")
+
+bbp_bs_jj_cp_tidy <- bbp_bs_jj_wp %>%
+    select(-SoortGegevens, -Perioden) %>%
+    gather(Key, Waarde,
+           Totaal_1:Diensten_17)
+
+staaf_bs_selectie <-
+    data.frame(
+        Key   = c("Goederen_4",
+                  "Diensten_5",
+                  "Huishoudens_9",
+                  "Overheid_10",
+                  "BedrijvenEnHuishoudens_12",
+                  "Overheid_13",
+                  "VeranderingInVoorraden_14",
+                  "Goederen_16",
+                  "Diensten_17"),
+        Title = c("Invoer van goederen",
+                  "Invoer van diensten",
+                  "Consumptie huishoudens (hh)",
+                  "Consumptie overheid",
+                  "Investeringen bedrijven en hh",
+                  "Investeringen overheid",
+                  "Verandering in voorraden",
+                  "Uitvoer van goederen",
+                  "Uitvoer van diensten"),
+        stringsAsFactors = FALSE
+    )
+
+staaf_bs <- bbp_bs_jj_cp_tidy %>%
+    #filter(Jaar %in% 1995:2000) %>%
+    right_join(staaf_bs_selectie, by = "Key") %>%
+    rename(Besteding = Title) %>%
+    mutate(Waarde = ifelse(grepl("Invoer", Besteding), 
+                           -Waarde, Waarde)) %>%
+    
+    filter(Jaar <= 2017)
+
+staaf_bs_pc <- staaf_bs %>%
+    group_by(Jaar) %>%
+    mutate(Percentage = Waarde / sum(Waarde))
+
+
+# https://stackoverflow.com/questions/15282580/how-to-generate-a-number-of-most-distinctive-colors-in-r
+set.seed(2)
+palet_bs <- distinctColorPalette(9)
+
+# https://www.displayr.com/how-to-make-a-pie-chart-in-r/
+plot_staaf_bs <- staaf_bs_pc %>% 
+    
+    # plot
+    ggplot(aes(x = 1,
+               y = Waarde,
+               fill = Besteding)) +
+    geom_bar(stat="identity") + 
+    geom_text(aes(
+        label = paste0(round(Percentage * 100), "%")), 
+        position = position_stack(vjust = 0.5),
+        size = 10) +
+    labs(x = NULL, y = NULL, fill = NULL) +
+    scale_fill_manual(values = palet_bs) +
+    guides(col = guide_legend(keyheight = 200)) + 
+    theme_tufte() + 
+    theme(text = element_text(size = 30),
+          axis.line = element_blank(),
+          axis.text = element_blank(),
+          axis.ticks = element_blank(),
+          plot.title = element_text(size = 60, 
+                                    hjust = 0.5, 
+                                    color = "#FFFFFF"),
+          plot.background = element_rect(fill = "#000000"),
+          legend.key.height = unit(32, "points"),
+          legend.text = element_text(color = "white")) +
+    
+    # animatie
+    labs(title = '< {frame_time} >') +
+    transition_time(Jaar)
+
+n_staaf_bs_jaren <- length(unique(staaf_bs$Jaar))
+
+animate(plot_staaf_bs, 
+        nframes = n_staaf_bs_jaren, 
+        fps = n_staaf_bs_jaren / 20,
+        width = 1480, 
         height = 1080)
  
+# Treemap BBP Bedrijfstakken ----
+groei_bt_jj_vi_tidy <- groei %>%
+    select(SoortMutaties,
+           Perioden, 
+           Totaal_19:BbpGecorrigeerdVoorWerkdageneffecten_74) %>%
+    filter(grepl("JJ", Perioden)) %>%
+    mutate(Jaar = as.numeric(substr(Perioden, 0, 4))) %>%
+    filter(SoortMutaties == "A045299") %>%
+    select(-SoortMutaties, -Perioden) %>%
+    gather(Key, Waarde,
+           Totaal_19:BbpGecorrigeerdVoorWerkdageneffecten_74) %>%
+    left_join(groei_meta_key,
+              by = "Key")
+
+treemap_groei_bt_selectie <-
+    c("ALandbouwBosbouwEnVisserij_21",
+      "BDelfstoffenwinning_23",
+      "Totaal_24",
+      "DEnergievoorziening_36",
+      "EWaterbedrijvenEnAfvalbeheer_37",
+      "FBouwnijverheid_38",
+      "GHandel_41",
+      "HVervoerEnOpslag_42",
+      "IHoreca_43",
+      "JInformatieEnCommunicatie_44",
+      "KFinancieleDienstverlening_45",
+      "LVerhuurEnHandelVanOnroerendGoed_46",
+      "Totaal_47",
+      "Totaal_56",
+      "QGezondheidsEnWelzijnszorg_59",
+      "RUCultuurRecreatieOverigeDiensten_60")
+
+treemap_groei_bt <- groei_bt_jj_vi_tidy %>%
+    #filter(Jaar %in% 1995:2000) %>%
+    filter(Key %in% treemap_groei_bt_selectie) %>%
+    rename(Bedrijfstak = Title,
+           Groei = Waarde) %>%
+    
+    filter(Jaar <= 2017)
+
+treemap_bt <- taart_bt %>%
+    full_join(treemap_groei_bt, by = c("Jaar", "Bedrijfstak")) %>%
+    mutate(Sortering = as.numeric(as.factor(Bedrijfstak)))
+
+saveGIF({
+    par(bg = "white")
+    for (j in 1996:2017) 
+    {
+        treemap(treemap_bt %>% filter(Jaar == j),
+                title = paste("<", j, ">"),
+                type = "value",
+                range = c(-15, 15),
+                index = "Bedrijfstak", 
+                vSize = "Waarde",
+                vColor = "Groei",
+                sortID = "Sortering",
+                fontfamily.title = "serif",
+                fontsize.title = 60,
+                fontsize.labels = 30,
+                fontsize.legend = 40)
+    }
+}, 
+    movie.name = "treemap.gif",
+    ani.width = 1600, 
+    ani.height = 1200,
+    interval = 60 / length(1996:2017)
+)
