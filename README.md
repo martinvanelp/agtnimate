@@ -4,7 +4,8 @@
 
 - Taartdiagram bedrijfstakken, naar jaar
 - Taartdiagram bestedingen, naar jaar
-- Tabplot van de economie, naar jaar
+- Treemap van de economie, naar jaar (of zelfs kwartaal?)
 - Gapminder van bedrijfstakken, PV-verhouding, groei, TW
-- Correlatiematrix
+- Verbruik van goed of dienst naar bedrijfstak (kan dat met Statline?)
+- Correlatiematrix bedrijfstakken (kwartalen AGT)
 - ...
