@@ -145,7 +145,7 @@ bbp_bs_jj <- bbp_bs %>%
 bbp_bs_jj_cp <- bbp_bs_jj %>%
     filter(SoortGegevens == "A045295")
 
-bbp_bs_jj_cp_tidy <- bbp_bs_jj_wp %>%
+bbp_bs_jj_cp_tidy <- bbp_bs_jj_cp %>%
     select(-SoortGegevens, -Perioden) %>%
     gather(Key, Waarde,
            Totaal_1:Diensten_17)
@@ -287,9 +287,10 @@ saveGIF({
                 vColor = "Groei",
                 sortID = "Sortering",
                 fontfamily.title = "serif",
-                fontsize.title = 60,
-                fontsize.labels = 30,
-                fontsize.legend = 40)
+                fontsize.title = 80,
+                fontfamily.legend = "serif",
+                fontsize.legend = 50,
+                fontsize.labels = 30)
     }
 }, 
     movie.name = "treemap.gif",
@@ -297,3 +298,87 @@ saveGIF({
     ani.height = 1200,
     interval = 60 / length(1996:2017)
 )
+
+# Productie en IV ----
+pv_meta <- cbs_get_meta("84088NED")
+pv      <- cbs_get_data("84088NED")
+
+pv_meta_key <- 
+    pv_meta$DataProperties %>%
+    select(Key, Title, ParentID) %>%
+    full_join(pv_meta$DataProperties %>%
+                  select(ParentKey = Key, ParentTitle = Title, ID),
+              by = c("ParentID" = "ID")) %>%
+    mutate(Title = ifelse(Title == "Totaal", ParentTitle, Title)) %>%
+    select(Key, Title) %>%
+    na.omit()
+
+staaf_pv_filter <- 
+    c("301000",
+      "300002",
+      "350000",
+      "300006",
+      "391600",
+      "396300",
+      "402000",
+      "300010",
+      "300012",
+      "300014")
+
+staaf_pv <- pv %>%
+    left_join(pv_meta$BedrijfstakkenBranchesSBI2008 %>%
+                  select(Key, Bedrijfstak = Title),
+              by = c("BedrijfstakkenBranchesSBI2008" = "Key")) %>%
+    rename(Productie   = OutputBasisprijzen_1,
+           Verbruik    = IntermediairVerbruik_2,
+           TW          = BrutoToegevoegdeWaardeBasisprijzen_3) %>%
+    mutate(Verbruik    = -Verbruik) %>%
+    filter(trimws(BedrijfstakkenBranchesSBI2008) %in% staaf_pv_filter) %>%
+    filter(grepl("JJ", Perioden)) %>%
+    mutate(Jaar = as.numeric(substr(Perioden, 0, 4))) %>%
+    select(Jaar, Bedrijfstak, Verbruik, TW) %>%
+    gather(Wat, Waarde, Verbruik:TW)
+
+plot_staaf_pv <- staaf_pv %>%
+    
+    mutate(Wat = ifelse(Wat == "TW", "Toegevoegde waarde", Wat)) %>%
+
+    # plot
+    ggplot(aes(x = Bedrijfstak,
+               y = Waarde,
+               fill = Wat)) +
+    geom_bar(stat="identity") + 
+    geom_text(aes(
+        label = Waarde), 
+        position = position_stack(vjust = 0.5),
+        size = 5) +
+    labs(x = NULL, y = NULL, fill = NULL) +
+    # scale_fill_manual(values = palet_bs) +
+    guides(col = guide_legend(keyheight = 200)) + 
+    theme_tufte() + 
+    theme(text = element_text(size = 30),
+          axis.line = element_blank(),
+          axis.text.x = element_text(size = 20,
+                                     hjust = 1,
+                                   angle = 75,
+                                   color = "#FFFFFF"),
+          axis.text.y = element_blank(),
+          axis.ticks = element_blank(),
+          plot.title = element_text(size = 60, 
+                                    hjust = 0.5, 
+                                    color = "#FFFFFF"),
+          plot.background = element_rect(fill = "#000000"),
+          legend.key.height = unit(32, "points"),
+          legend.text = element_text(color = "white")) +
+    
+    # animatie
+    labs(title = '< {frame_time} >') +
+    transition_time(Jaar)
+
+n_staaf_pv_jaren <- length(unique(staaf_pv$Jaar))
+
+animate(plot_staaf_pv, 
+        nframes = n_staaf_pv_jaren, 
+        fps = n_staaf_pv_jaren / 20,
+        width = 1480, 
+        height = 1080)
