@@ -143,7 +143,7 @@ bbp_bs_jj <- bbp_bs %>%
     mutate(Jaar = as.numeric(substr(Perioden, 0, 4)))
 
 bbp_bs_jj_cp <- bbp_bs_jj %>%
-    filter(SoortGegevens == "A045295")
+    filter(SoortGegevens == "A045295")  # Prijsniveau 2015
 
 bbp_bs_jj_cp_tidy <- bbp_bs_jj_cp %>%
     select(-SoortGegevens, -Perioden) %>%
@@ -244,7 +244,7 @@ groei_bt_jj_vi_tidy <- groei %>%
     left_join(groei_meta_key,
               by = "Key")
 
-treemap_groei_bt_selectie <-
+groei_bt_selectie <-
     c("ALandbouwBosbouwEnVisserij_21",
       "BDelfstoffenwinning_23",
       "Totaal_24",
@@ -264,7 +264,7 @@ treemap_groei_bt_selectie <-
 
 treemap_groei_bt <- groei_bt_jj_vi_tidy %>%
     #filter(Jaar %in% 1995:2000) %>%
-    filter(Key %in% treemap_groei_bt_selectie) %>%
+    filter(Key %in% groei_bt_selectie) %>%
     rename(Bedrijfstak = Title,
            Groei = Waarde) %>%
     
@@ -313,6 +313,19 @@ pv_meta_key <-
     select(Key, Title) %>%
     na.omit()
 
+pv_bewerkt <- pv %>%
+    left_join(pv_meta$BedrijfstakkenBranchesSBI2008 %>%
+                  select(Key, Bedrijfstak = Title),
+              by = c("BedrijfstakkenBranchesSBI2008" = "Key")) %>%
+    rename(Productie   = OutputBasisprijzen_1,
+           Verbruik    = IntermediairVerbruik_2,
+           TW          = BrutoToegevoegdeWaardeBasisprijzen_3) %>%
+    mutate(Verbruik    = -Verbruik) %>%
+    filter(grepl("JJ", Perioden)) %>%
+    mutate(Jaar = as.numeric(substr(Perioden, 0, 4))) %>%
+    select(Jaar, BedrijfstakkenBranchesSBI2008, Bedrijfstak, 
+           Productie, Verbruik, TW)
+
 staaf_pv_filter <- 
     c("301000",
       "300002",
@@ -325,18 +338,9 @@ staaf_pv_filter <-
       "300012",
       "300014")
 
-staaf_pv <- pv %>%
-    left_join(pv_meta$BedrijfstakkenBranchesSBI2008 %>%
-                  select(Key, Bedrijfstak = Title),
-              by = c("BedrijfstakkenBranchesSBI2008" = "Key")) %>%
-    rename(Productie   = OutputBasisprijzen_1,
-           Verbruik    = IntermediairVerbruik_2,
-           TW          = BrutoToegevoegdeWaardeBasisprijzen_3) %>%
-    mutate(Verbruik    = -Verbruik) %>%
+staaf_pv <- pv_bewerkt %>%
     filter(trimws(BedrijfstakkenBranchesSBI2008) %in% staaf_pv_filter) %>%
-    filter(grepl("JJ", Perioden)) %>%
-    mutate(Jaar = as.numeric(substr(Perioden, 0, 4))) %>%
-    select(Jaar, Bedrijfstak, Verbruik, TW) %>%
+    select(-Productie) %>%
     gather(Wat, Waarde, Verbruik:TW)
 
 plot_staaf_pv <- staaf_pv %>%
@@ -347,16 +351,18 @@ plot_staaf_pv <- staaf_pv %>%
     ggplot(aes(x = Bedrijfstak,
                y = Waarde,
                fill = Wat)) +
-    geom_bar(stat="identity") + 
+    geom_bar(stat="identity", color = "blue", size = 2) + 
     geom_text(aes(
         label = Waarde), 
         position = position_stack(vjust = 0.5),
         size = 5) +
     labs(x = NULL, y = NULL, fill = NULL) +
-    # scale_fill_manual(values = palet_bs) +
-    guides(col = guide_legend(keyheight = 200)) + 
+    scale_fill_manual(values = c("green", "orange")) +
+    guides(fill= guide_legend(title="Productie"),
+           col = guide_legend(keyheight = 200)) + 
     theme_tufte() + 
     theme(text = element_text(size = 30),
+          
           axis.line = element_blank(),
           axis.text.x = element_text(size = 20,
                                      hjust = 1,
@@ -364,10 +370,13 @@ plot_staaf_pv <- staaf_pv %>%
                                    color = "#FFFFFF"),
           axis.text.y = element_blank(),
           axis.ticks = element_blank(),
+          
           plot.title = element_text(size = 60, 
                                     hjust = 0.5, 
                                     color = "#FFFFFF"),
           plot.background = element_rect(fill = "#000000"),
+          
+          legend.title = element_text(color = "white"),
           legend.key.height = unit(32, "points"),
           legend.text = element_text(color = "white")) +
     
@@ -380,5 +389,107 @@ n_staaf_pv_jaren <- length(unique(staaf_pv$Jaar))
 animate(plot_staaf_pv, 
         nframes = n_staaf_pv_jaren, 
         fps = n_staaf_pv_jaren / 20,
+        width = 1480, 
+        height = 1080)
+
+# Gapminder ----
+arbeid_meta <- cbs_get_meta("84164NED")
+arbeid      <- cbs_get_data("84164NED")
+
+arbeid_bt <- arbeid %>%
+    select(Geslacht,
+           TypeWerkenden,
+           Perioden, 
+           BedrijfstakkenBranchesSBI2008,
+           Arbeidsjaren_3) %>%
+    filter(grepl("JJ", Perioden),
+           Geslacht == 1100,
+           TypeWerkenden == "T001413") %>%
+    mutate(Jaar = as.numeric(substr(Perioden, 0, 4)),
+           BedrijfstakkenBranchesSBI2008 = 
+               as.character(BedrijfstakkenBranchesSBI2008)) %>%
+    select(-Geslacht, - TypeWerkenden, -Perioden) %>%
+    left_join(arbeid_meta$BedrijfstakkenBranchesSBI2008 %>%
+                  select(Key, Title),
+              by = c("BedrijfstakkenBranchesSBI2008" = "Key")) %>%
+    select(Jaar,
+           Title,
+           Arbeidsjaren = Arbeidsjaren_3,
+           -BedrijfstakkenBranchesSBI2008)
+
+arbeid_bt_bewerkt <-
+    bind_rows(arbeid_bt,
+              arbeid_bt %>%
+                  filter(Title %in% 
+                             c("O Openbaar bestuur en overheidsdiensten",
+                               "P Onderwijs")) %>%
+                  mutate(Title = "O-P Overheid en onderwijs") %>%
+                  group_by(Jaar, Title) %>%
+                  summarise_all(sum) %>% ungroup()
+    )
+
+gapminder_data <- bbp_bt_jj_wp_tidy %>%
+    
+    filter(Key %in% taart_bt_selectie) %>%
+    select(-Key) %>%
+    
+    left_join(pv_bewerkt,
+              by = c("Jaar", "Title" = "Bedrijfstak")) %>%
+    select(Jaar, Title, everything()) %>%
+    
+    left_join(arbeid_bt_bewerkt,
+              by = c("Jaar", "Title")) %>%
+    
+    # filter(Jaar %in% 1995:2000) %>%
+    rename(Bedrijfstak = Title,
+           BBP = Waarde) %>%
+    
+    mutate(PV_Verhouding = Productie / -Verbruik,
+           BBP_Arbeidsjaar = BBP / Arbeidsjaren) %>%
+    
+    select(Jaar, Bedrijfstak, BBP, PV_Verhouding, BBP_Arbeidsjaar) %>%
+    
+    filter(Jaar > 1995 & Jaar <= 2017)
+
+plot_gapminder <- gapminder_data %>%
+    
+    # plot
+    ggplot(aes(BBP_Arbeidsjaar, 
+               PV_Verhouding, 
+               size = BBP, 
+               colour = Bedrijfstak)) +
+    geom_point(alpha = 0.7, 
+               show.legend = FALSE) +
+    geom_text(aes(label = Bedrijfstak),
+              size = 8,
+              show.legend = FALSE) +
+    scale_colour_manual(values = palet_bt) +
+    scale_size(range = c(2, 80)) +
+    scale_x_log10() +
+    scale_y_sqrt() +
+    theme_tufte() + 
+    theme(text = element_text(size = 30,
+                              colour = "#FFFFFF"),
+          
+          axis.line = element_blank(),
+          axis.text = element_text(size = 20),
+          axis.ticks = element_blank(),
+          
+          plot.title = element_text(size = 60, 
+                                    hjust = 0.5, 
+                                    color = "#FFFFFF"),
+          plot.background = element_rect(fill = "#000000")) +
+    
+    # animatie
+    labs(title = '< {frame_time} >', 
+         x = 'BBP per Arbeidsjaar', 
+         y = 'Productie / Verbruik') +
+    transition_time(Jaar)
+
+n_gapminder_jaren <- length(unique(gapminder_data$Jaar))
+
+animate(plot_gapminder, 
+        nframes = n_gapminder_jaren, 
+        fps = n_gapminder_jaren / 20,
         width = 1480, 
         height = 1080)
