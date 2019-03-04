@@ -132,6 +132,8 @@ animate(plot_taart_bt,
         width = 1480, 
         height = 1080)
 
+anim_save("movie-1/plot_taart_bt.gif")
+
 # Staaf BBP Bestedingen ----
 bbp_bs <- bbp %>%
     select(SoortGegevens,
@@ -229,6 +231,8 @@ animate(plot_staaf_bs,
         fps = n_staaf_bs_jaren / 20,
         width = 1480, 
         height = 1080)
+
+anim_save("movie-1/plot_staaf_bs.gif")
  
 # Treemap BBP Bedrijfstakken ----
 groei_bt_jj_vi_tidy <- groei %>%
@@ -274,6 +278,8 @@ treemap_bt <- taart_bt %>%
     full_join(treemap_groei_bt, by = c("Jaar", "Bedrijfstak")) %>%
     mutate(Sortering = as.numeric(as.factor(Bedrijfstak)))
 
+d <- getwd()
+setwd(paste0(d, "/movie-1"))
 saveGIF({
     par(bg = "white")
     for (j in 1996:2017) 
@@ -298,6 +304,7 @@ saveGIF({
     ani.height = 1200,
     interval = 60 / length(1996:2017)
 )
+setwd(d)
 
 # Productie en IV ----
 pv_meta <- cbs_get_meta("84088NED")
@@ -391,6 +398,8 @@ animate(plot_staaf_pv,
         fps = n_staaf_pv_jaren / 20,
         width = 1480, 
         height = 1080)
+
+anim_save("movie-1/plot_staaf_pv.gif")
 
 # Gapminder ----
 arbeid_meta <- cbs_get_meta("84164NED")
@@ -493,3 +502,8 @@ animate(plot_gapminder,
         fps = n_gapminder_jaren / 20,
         width = 1480, 
         height = 1080)
+
+anim_save("movie-1/plot_gapminder.gif")
+
+# Correlatiematrix ----
+correlatie_bt <- groei_bt_jj_vi_tidy
