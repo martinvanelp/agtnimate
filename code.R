@@ -506,4 +506,103 @@ animate(plot_gapminder,
 anim_save("movie-1/plot_gapminder.gif")
 
 # Correlatiematrix ----
-correlatie_bt <- groei_bt_jj_vi_tidy
+# http://www.sthda.com/english/wiki/ggplot2-quick-correlation-matrix-heatmap-r-software-and-data-visualization
+groei_bt_kw_vi_tidy <- groei %>%
+    select(SoortMutaties,
+           Perioden, 
+           Totaal_19:BbpGecorrigeerdVoorWerkdageneffecten_74) %>%
+    filter(grepl("KW", Perioden)) %>%    
+    mutate(Jaar = as.numeric(substr(Perioden, 0, 4)),
+           Kwartaal = as.numeric(substr(Perioden, 8, 8))) %>%
+    filter(SoortMutaties == "A045299") %>%
+    select(-SoortMutaties, -Perioden) %>%
+    gather(Key, Waarde,
+           Totaal_19:BbpGecorrigeerdVoorWerkdageneffecten_74) %>%
+    left_join(groei_meta_key,
+              by = "Key")
+
+correlatie_bt <- function(input, kwartaal)
+{
+    input %>%
+        filter(Key %in% groei_bt_selectie,
+               Kwartaal == kwartaal) %>%
+        select(Jaar, Kwartaal, Title, Waarde) %>%
+        mutate(Bedrijfstak = substr(Title, 0, 15),
+               Groei = Waarde) %>%
+        filter(Jaar > 1995 & Jaar <= 2017) %>%
+        select(-Title, -Waarde) %>%
+        spread(Bedrijfstak, Groei) %>%
+        select(-Jaar, -Kwartaal) %>%
+        cor() %>%
+        round(2)
+}
+
+correlatie_plot <- function(correlatiematrix, kwartaal)
+{
+    # Get lower triangle of the correlation matrix
+    get_lower_tri<-function(cormat){
+        cormat[upper.tri(cormat)] <- NA
+        return(cormat)
+    }
+    # Get upper triangle of the correlation matrix
+    get_upper_tri <- function(cormat){
+        cormat[lower.tri(cormat)]<- NA
+        return(cormat)
+    }
+    
+    correlatiematrix_melted <- 
+        get_lower_tri(correlatiematrix) %>%
+        reshape2::melt(na.rm = TRUE)
+    
+    ggplot(data = correlatiematrix_melted,
+           aes(x = Var1,
+               y = Var2,
+               fill = value)) +
+        
+        geom_tile(color = "white") +
+        scale_fill_gradient2(low = "red", high = "green", mid = "white", 
+                             midpoint = 0, limit = c(-1,1), space = "Lab", 
+                             name="Pearson\nCorrelation") +
+        
+        theme_minimal() +
+        
+        coord_fixed() + 
+        
+        geom_text(aes(Var1, Var2, label = value), 
+                  color = "black", size = 4) +
+        
+        theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                         size = 12, hjust = 1),
+              axis.text.y = element_text(size = 12),
+              axis.title.x = element_blank(),
+              axis.title.y = element_blank(),
+              panel.grid.major = element_blank(),
+              panel.border = element_blank(),
+              panel.background = element_blank(),
+              axis.ticks = element_blank(),
+              legend.justification = c(1, 0),
+              legend.position = c(0.5, 0.8),
+              legend.direction = "horizontal",
+              plot.title = element_text(size = 30, 
+                                        hjust = 0.5, 
+                                        color = "#000000")) +
+        
+        guides(fill = guide_colorbar(barwidth = 7, 
+                                     barheight = 1,
+                                     title.position = "top",
+                                     title.hjust = 0.5)) +
+        
+        labs(title = paste0('Groei ', kwartaal, 'e kwartaal'))
+}
+
+for(k in 1:4) {
+    correlatie_bt(groei_bt_kw_vi_tidy, kwartaal = k) %>% 
+        correlatie_plot(k)
+    
+    ggsave(filename = paste0("movie-1/plot_correlatie_kw0", k, ".png"),
+           width = 9, 
+           height = 9,
+           dpi = 600,
+           units = "in")
+}
+
