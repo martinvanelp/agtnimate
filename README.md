@@ -8,5 +8,5 @@
 * Staafdiagrammen voor elke bedrijfstak, +TW & -Verbruik, naar jaar
 * Gapminder van bedrijfstakken: denk PV-verhouding, TW/wp, groei, TW, etc.
 * Correlatiematrix bedrijfstakken (kwartalen AGT)
-- Verbruik van goed of dienst naar bedrijfstak (kan dat met Statline?)
+* Stroomdiagram van 1/2 goederen
 - ...

@@ -2,7 +2,10 @@ library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(gganimate)
+# library(ggalluvial)
 library(animation)
+library(networkD3)
+library(htmltools)
 
 library(treemap)
 library(cbsodataR)
@@ -599,10 +602,203 @@ for(k in 1:4) {
     correlatie_bt(groei_bt_kw_vi_tidy, kwartaal = k) %>% 
         correlatie_plot(k)
     
-    ggsave(filename = paste0("movie-1/plot_correlatie_kw0", k, ".png"),
+    ggsave(filename = paste0("movie-1/correlatie/plot_correlatie_kw0", 
+                             k, ".png"),
            width = 9, 
            height = 9,
            dpi = 600,
            units = "in")
 }
 
+# Stroomdiagram ----
+gg_meta <- cbs_get_meta("83068NED")  # stopgezette tabel!
+gg      <- cbs_get_data("83068NED")
+
+gg_meta_key <- 
+    gg_meta$DataProperties %>%
+    select(Key, Title, ParentID) %>%
+    full_join(gg_meta$DataProperties %>%
+                  select(ParentKey = Key, ParentTitle = Title, ID),
+              by = c("ParentID" = "ID")) %>%
+    mutate(Title = ifelse(Title == "Totaal", ParentTitle, Title)) %>%
+    select(Key, Title) %>%
+    na.omit()
+
+gg_industrie <- gg %>%
+    
+    filter(grepl("JJ", Perioden)) %>%
+    mutate(Jaar = as.numeric(substr(Perioden, 0, 4))) %>%
+
+    # Landbouw
+    filter(ProductgroepenEnOverigePosten == 1771374) %>%
+    select(Jaar,
+           AanbodUitBinnenlandseProductie_17,
+           Totaal_3,
+           IntermediairVerbruik_7,
+           Totaal_8,
+           BrutoInvesteringenInVasteActiva_11,
+           VeranderingInVoorraden_12,
+           Totaal_13)
+
+gg_industrie_aanbod <- gg_landbouw %>%
+    select(Jaar, 
+           AanbodUitBinnenlandseProductie_17:Totaal_3, 
+           VeranderingInVoorraden_12) %>%
+    gather(Key, Waarde,
+           AanbodUitBinnenlandseProductie_17:Totaal_3,
+           VeranderingInVoorraden_12) %>%
+    left_join(gg_meta_key,
+              by = "Key") %>%
+    group_by(Jaar) %>%
+    mutate(Title = ifelse(Title == "Verandering in voorraden",
+                          "Afname voorraden", Title),
+           Waarde = ifelse(Title == "Afname voorraden" & Waarde > 0,
+                           0, Waarde),
+           Aandeel = Waarde / sum(Waarde)) %>%
+    select(Jaar, Aanbod = Title, Waarde)
+
+gg_industrie_gebruik <- gg_landbouw %>%
+    select(Jaar, IntermediairVerbruik_7:Totaal_13) %>%
+    gather(Key, Waarde,
+           IntermediairVerbruik_7:Totaal_13) %>%
+    filter(!(Key == "VeranderingInVoorraden_12" & Waarde < 0)) %>%
+    left_join(gg_meta_key,
+              by = "Key") %>%
+    mutate(Title = ifelse(Title == "Verandering in voorraden",
+                          "Toename voorraden", Title),
+           Waarde = ifelse(Title == "Toename voorraden" & Waarde < 0,
+                           0, Waarde)) %>%
+    select(Jaar, Gebruik = Title, Waarde)
+
+## ggalluvial ----
+# stroom_data <- as.data.frame(Titanic)
+# 
+# stroom_data <-
+#     full_join(gg_landbouw_aanbod,
+#               gg_landbouw_gebruik,
+#               by = "Jaar") %>%
+#     mutate(Waarde = Waarde * Aandeel) %>%
+#     select(-Aandeel) %>%
+#     mutate(Economie = "Nederland")
+# 
+# plot_stroom <- stroom_data %>%
+#     
+#     # plot
+#     ggplot(aes(y = Waarde,
+#                axis1 = Aanbod, axis2 = Economie, axis3 = Gebruik)) +
+#     geom_alluvium(aes(fill = Aanbod),
+#                   width = 0, knot.pos = 0, reverse = FALSE,
+#                   alpha = 0.7, 
+#                   show.legend = FALSE) +
+#     # guides(fill = FALSE) +
+#     geom_stratum(width = 1/8, reverse = FALSE) +
+#     geom_text(stat = "stratum", 
+#               size = 4,
+#               label.strata = TRUE, 
+#               reverse = FALSE) +
+#     scale_x_continuous(breaks = 1:3, 
+#                        labels = c("Aanbod", "Economie", "Gebruik")) +
+#     # coord_flip() +
+#     scale_colour_manual(values = palet_bt) +
+#     
+#     theme_tufte() + 
+#     theme(text = element_text(size = 30,
+#                               colour = "#FFFFFF"),
+#           
+#           axis.line = element_blank(),
+#           axis.text = element_text(size = 20),
+#           axis.ticks = element_blank(),
+#           
+#           plot.title = element_text(size = 60, 
+#                                     hjust = 0.5, 
+#                                     color = "#FFFFFF"),
+#           plot.background = element_rect(fill = "#000000")) +
+#     
+#     # animatie
+#     labs(title = '< {frame_time} >', 
+#          # x = 'BBP per Arbeidsjaar', 
+#          y = 'Euro') +
+#     transition_time(Jaar)
+
+## networkD3 ----
+gg_industrie_bs <- 
+    full_join(gg_industrie_aanbod %>% 
+                  group_by(Jaar) %>% 
+                  summarise(A = sum(Waarde)),
+              gg_industrie_gebruik %>% 
+                  group_by(Jaar) %>% 
+                  summarise(G = sum(Waarde)),
+              by = "Jaar") %>%
+    mutate(Aanbod = "Belastingen en subsidies",
+           Waarde = G - A) %>%
+    select(Jaar, Aanbod, Waarde)
+
+stroom_links <- 
+    gg_industrie_aanbod %>%
+    bind_rows(gg_industrie_bs) %>%
+    rename(Bron = Aanbod) %>%
+    mutate(Groep = "Aanbod",
+           Bestemming = "Economie") %>%
+    bind_rows(gg_industrie_gebruik %>%
+                  rename(Bestemming = Gebruik) %>%
+                  mutate(Groep = "Gebruik",
+                         Bron = "Economie")) %>%
+    mutate(Groep = as.factor(Groep))
+
+stroom_nodes <- 
+    bind_rows(stroom_links %>% ungroup() %>%
+                  select(Naam = Bron, Groep),
+              stroom_links %>% ungroup() %>%
+                  select(Naam = Bestemming, Groep)) %>%
+    mutate(Groep = as.factor(
+        ifelse(Naam == "Economie", "Economie", Groep))) %>%
+    unique()
+    
+### With networkD3, connection must be provided using id, 
+### not using real name like in the links dataframe.. So we need to reformat it.
+stroom_links$Bron_ID       = match(stroom_links$Bron, 
+                                   stroom_nodes$Naam) - 1
+stroom_links$Bestemming_ID = match(stroom_links$Bestemming, 
+                                   stroom_nodes$Naam) - 1
+
+### Give a color for each group:
+sankey_kleuren <- 'd3.scaleOrdinal() .domain(["Aanbod", "Gebruik", "Economie"]) .range(["blue", "green", "yellow"])'
+
+for (j in 1995:2016) {
+    network <-
+        browsable(
+            tagList(
+                tags$head(
+                    tags$style('
+                               h1{text-align: center;}
+                               ')
+                ),
+                tags$body(
+                    tags$h1(paste0("<", j, ">")),
+                    sankeyNetwork(Links = stroom_links %>%
+                                      filter(Jaar == j), 
+                                  Nodes = stroom_nodes,
+                                  Source = "Bron_ID", 
+                                  Target = "Bestemming_ID",
+                                  Value = "Waarde", 
+                                  NodeID = "Naam", 
+                                  sinksRight = TRUE,
+                                  
+                                  colourScale = sankey_kleuren, 
+                                  LinkGroup = "Groep", 
+                                  NodeGroup = "Groep",
+                                  
+                                  fontSize = 32,
+                                  
+                                  width = 1900,
+                                  height = 960
+                    )
+                )
+            )
+        )
+    
+    d <- getwd()
+    setwd(paste0(d, "/movie-1/sankey"))
+    save_html(network, file = paste0("sankey-", j, ".html"))
+    setwd(d)
+}
