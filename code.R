@@ -611,8 +611,8 @@ for(k in 1:4) {
 }
 
 # Stroomdiagram ----
-gg_meta <- cbs_get_meta("83068NED")  # stopgezette tabel!
-gg      <- cbs_get_data("83068NED")
+gg_meta <- cbs_get_meta("84092NED")
+gg      <- cbs_get_data("84092NED")
 
 gg_meta_key <- 
     gg_meta$DataProperties %>%
@@ -624,51 +624,141 @@ gg_meta_key <-
     select(Key, Title) %>%
     na.omit()
 
-gg_industrie <- gg %>%
-    
-    filter(grepl("JJ", Perioden)) %>%
-    mutate(Jaar = as.numeric(substr(Perioden, 0, 4))) %>%
+GG_SELECTIE <- filter(gg_meta$ProductgroepenEnOverigePosten,
+                      CategoryGroupID == 4)
 
-    # Landbouw
-    filter(ProductgroepenEnOverigePosten == 1771374) %>%
-    select(Jaar,
-           AanbodUitBinnenlandseProductie_17,
-           Totaal_3,
-           IntermediairVerbruik_7,
-           Totaal_8,
-           BrutoInvesteringenInVasteActiva_11,
-           VeranderingInVoorraden_12,
-           Totaal_13)
+gg_jaar <- function(gg, jaar)
+{
+    gg %>%
+        
+        filter(grepl(paste0(jaar, "JJ"), Perioden)) %>%
+        mutate(Jaar = as.numeric(substr(Perioden, 0, 4))) %>%
+        
+        # Landbouw
+        filter(ProductgroepenEnOverigePosten %in% GG_SELECTIE$Key) %>%
+        left_join(gg_meta$ProductgroepenEnOverigePosten %>%
+                      select(Key, Title),
+                  by = c("ProductgroepenEnOverigePosten" = "Key")) %>%
+        select(Jaar,
+               Goed = Title,
+               AanbodUitBinnenlandseProductie_17,
+               Totaal_3,
+               IntermediairVerbruik_7,
+               Totaal_8,
+               BrutoInvesteringenInVasteActiva_11,
+               VeranderingInVoorraden_12,
+               Totaal_13)
+}
 
-gg_industrie_aanbod <- gg_landbouw %>%
-    select(Jaar, 
-           AanbodUitBinnenlandseProductie_17:Totaal_3, 
-           VeranderingInVoorraden_12) %>%
-    gather(Key, Waarde,
-           AanbodUitBinnenlandseProductie_17:Totaal_3,
-           VeranderingInVoorraden_12) %>%
-    left_join(gg_meta_key,
-              by = "Key") %>%
-    group_by(Jaar) %>%
-    mutate(Title = ifelse(Title == "Verandering in voorraden",
-                          "Afname voorraden", Title),
-           Waarde = ifelse(Title == "Afname voorraden" & Waarde > 0,
-                           0, Waarde),
-           Aandeel = Waarde / sum(Waarde)) %>%
-    select(Jaar, Aanbod = Title, Waarde)
+gg_aanbod <- function(gg)
+{
+    gg %>%
+        select(Jaar, Goed,
+               AanbodUitBinnenlandseProductie_17:Totaal_3,
+               VeranderingInVoorraden_12) %>%
+        gather(Key, Waarde,
+               AanbodUitBinnenlandseProductie_17:Totaal_3,
+               VeranderingInVoorraden_12) %>%
+        left_join(gg_meta_key,
+                  by = "Key") %>%
+        group_by(Jaar) %>%
+        mutate(Title = ifelse(Title == "Verandering in voorraden",
+                              "Afname voorraden", Title),
+               Waarde = ifelse(Title == "Afname voorraden" & Waarde > 0,
+                               0, Waarde),
+               Waarde = ifelse(Title == "Afname voorraden" & Waarde < 0,
+                               -Waarde, Waarde),
+               Aandeel = Waarde / sum(Waarde)) %>%
+        select(Jaar, Goed, Aanbod = Title, Waarde)
+}
 
-gg_industrie_gebruik <- gg_landbouw %>%
-    select(Jaar, IntermediairVerbruik_7:Totaal_13) %>%
-    gather(Key, Waarde,
-           IntermediairVerbruik_7:Totaal_13) %>%
-    filter(!(Key == "VeranderingInVoorraden_12" & Waarde < 0)) %>%
-    left_join(gg_meta_key,
-              by = "Key") %>%
-    mutate(Title = ifelse(Title == "Verandering in voorraden",
-                          "Toename voorraden", Title),
-           Waarde = ifelse(Title == "Toename voorraden" & Waarde < 0,
-                           0, Waarde)) %>%
-    select(Jaar, Gebruik = Title, Waarde)
+gg_gebruik <- function(gg)
+{
+    gg %>%
+        select(Jaar, Goed,
+               IntermediairVerbruik_7:Totaal_13) %>%
+        gather(Key, Waarde,
+               IntermediairVerbruik_7:Totaal_13) %>%
+        left_join(gg_meta_key,
+                  by = "Key") %>%
+        mutate(Title = ifelse(Title == "Verandering in voorraden",
+                              "Toename voorraden", Title),
+               Waarde = ifelse(Title == "Toename voorraden" & Waarde < 0,
+                               0, Waarde)) %>%
+        select(Jaar, Goed, Gebruik = Title, Waarde)
+}
+
+gg_bs <- function(aanbod, gebruik)
+{
+    full_join(aanbod %>%
+                  group_by(Jaar, Goed) %>%
+                  summarise(A = sum(Waarde)),
+              gebruik %>%
+                  group_by(Jaar, Goed) %>%
+                  summarise(G = sum(Waarde)),
+              by = c("Jaar", "Goed")) %>%
+        mutate(Aanbod = "Belastingen en subsidies",
+               Waarde = G - A) %>%
+        select(Jaar, Goed, Aanbod, Waarde)
+}
+
+# gg_industrie <- gg %>%
+#     
+#     filter(grepl("JJ", Perioden)) %>%
+#     mutate(Jaar = as.numeric(substr(Perioden, 0, 4))) %>%
+# 
+#     # Landbouw
+#     filter(ProductgroepenEnOverigePosten == 1771374) %>%
+#     select(Jaar,
+#            AanbodUitBinnenlandseProductie_17,
+#            Totaal_3,
+#            IntermediairVerbruik_7,
+#            Totaal_8,
+#            BrutoInvesteringenInVasteActiva_11,
+#            VeranderingInVoorraden_12,
+#            Totaal_13)
+# 
+# gg_industrie_aanbod <- gg_industrie %>%
+#     select(Jaar, 
+#            AanbodUitBinnenlandseProductie_17:Totaal_3, 
+#            VeranderingInVoorraden_12) %>%
+#     gather(Key, Waarde,
+#            AanbodUitBinnenlandseProductie_17:Totaal_3,
+#            VeranderingInVoorraden_12) %>%
+#     left_join(gg_meta_key,
+#               by = "Key") %>%
+#     group_by(Jaar) %>%
+#     mutate(Title = ifelse(Title == "Verandering in voorraden",
+#                           "Afname voorraden", Title),
+#            Waarde = ifelse(Title == "Afname voorraden" & Waarde > 0,
+#                            0, Waarde),
+#            Aandeel = Waarde / sum(Waarde)) %>%
+#     select(Jaar, Aanbod = Title, Waarde)
+# 
+# gg_industrie_gebruik <- gg_industrie %>%
+#     select(Jaar, IntermediairVerbruik_7:Totaal_13) %>%
+#     gather(Key, Waarde,
+#            IntermediairVerbruik_7:Totaal_13) %>%
+#     filter(!(Key == "VeranderingInVoorraden_12" & Waarde < 0)) %>%
+#     left_join(gg_meta_key,
+#               by = "Key") %>%
+#     mutate(Title = ifelse(Title == "Verandering in voorraden",
+#                           "Toename voorraden", Title),
+#            Waarde = ifelse(Title == "Toename voorraden" & Waarde < 0,
+#                            0, Waarde)) %>%
+#     select(Jaar, Gebruik = Title, Waarde)
+# 
+# gg_industrie_bs <- 
+#     full_join(gg_industrie_aanbod %>% 
+#                   group_by(Jaar) %>% 
+#                   summarise(A = sum(Waarde)),
+#               gg_industrie_gebruik %>% 
+#                   group_by(Jaar) %>% 
+#                   summarise(G = sum(Waarde)),
+#               by = "Jaar") %>%
+#     mutate(Aanbod = "Belastingen en subsidies",
+#            Waarde = G - A) %>%
+#     select(Jaar, Aanbod, Waarde)
 
 ## ggalluvial ----
 # stroom_data <- as.data.frame(Titanic)
@@ -721,25 +811,17 @@ gg_industrie_gebruik <- gg_landbouw %>%
 #     transition_time(Jaar)
 
 ## networkD3 ----
-gg_industrie_bs <- 
-    full_join(gg_industrie_aanbod %>% 
-                  group_by(Jaar) %>% 
-                  summarise(A = sum(Waarde)),
-              gg_industrie_gebruik %>% 
-                  group_by(Jaar) %>% 
-                  summarise(G = sum(Waarde)),
-              by = "Jaar") %>%
-    mutate(Aanbod = "Belastingen en subsidies",
-           Waarde = G - A) %>%
-    select(Jaar, Aanbod, Waarde)
+SANKEY_JAAR <- 2016
+
+g <- gg_jaar(gg, SANKEY_JAAR)
 
 stroom_links <- 
-    gg_industrie_aanbod %>%
-    bind_rows(gg_industrie_bs) %>%
+    gg_aanbod(g) %>%
+    bind_rows(gg_bs(gg_aanbod(g), gg_gebruik(g))) %>%
     rename(Bron = Aanbod) %>%
     mutate(Groep = "Aanbod",
            Bestemming = "Economie") %>%
-    bind_rows(gg_industrie_gebruik %>%
+    bind_rows(gg_gebruik(g) %>%
                   rename(Bestemming = Gebruik) %>%
                   mutate(Groep = "Gebruik",
                          Bron = "Economie")) %>%
@@ -764,7 +846,7 @@ stroom_links$Bestemming_ID = match(stroom_links$Bestemming,
 ### Give a color for each group:
 sankey_kleuren <- 'd3.scaleOrdinal() .domain(["Aanbod", "Gebruik", "Economie"]) .range(["blue", "green", "yellow"])'
 
-for (j in 1995:2016) {
+for (i in 1:nrow(g)) {
     network <-
         browsable(
             tagList(
@@ -774,9 +856,10 @@ for (j in 1995:2016) {
                                ')
                 ),
                 tags$body(
-                    tags$h1(paste0("<", j, ">")),
+                    tags$h1(paste0("< ", g$Goed[i], " >")),
                     sankeyNetwork(Links = stroom_links %>%
-                                      filter(Jaar == j), 
+                                      filter(Goed == g$Goed[i],
+                                             Waarde != 0), 
                                   Nodes = stroom_nodes,
                                   Source = "Bron_ID", 
                                   Target = "Bestemming_ID",
@@ -799,6 +882,8 @@ for (j in 1995:2016) {
     
     d <- getwd()
     setwd(paste0(d, "/movie-1/sankey"))
-    save_html(network, file = paste0("sankey-", j, ".html"))
+    save_html(network, file = paste0("sankey-", 
+                                     strsplit(g$Goed[i], " ")[[1]][1], 
+                                     ".html"))
     setwd(d)
 }
