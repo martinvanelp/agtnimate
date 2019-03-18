@@ -624,8 +624,11 @@ gg_meta_key <-
     select(Key, Title) %>%
     na.omit()
 
-GG_SELECTIE <- filter(gg_meta$ProductgroepenEnOverigePosten,
-                      CategoryGroupID == 4)
+GG_SELECTIE <- 
+    filter(gg_meta$ProductgroepenEnOverigePosten,
+           CategoryGroupID == 4) %>%
+    bind_rows(filter(gg_meta$ProductgroepenEnOverigePosten,
+                     Key == "A000028"))
 
 gg_jaar <- function(gg, jaar)
 {
